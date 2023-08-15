@@ -1,5 +1,5 @@
 YOSYS ?= yosys
-SNL_X2Y ?= /Users/xtof/WORK/naja/naja/build/src/apps/x2y/naja_x2y
+SNL_X2Y ?= /Users/xtof/WORK/naja/build/src/apps/x2y/naja_x2y
 PRIMITIVES ?= ../../primitives/xilinx.py 
 
 all: adder_netlist.v adder_snl.v #primitives.v verilator

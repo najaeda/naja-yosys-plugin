@@ -38,9 +38,14 @@ void YosysDebug::print(
   const RTLIL::IdString& id, const RTLIL::SigSpec& s,
   size_t indent, std::ostream& stream) {
   stream << std::string(indent, ' ') << "Connection:" << std::endl;
-	stream << std::string(indent+2, ' ') << id.c_str() << std::endl;
-	stream << std::string(indent+2, ' ') << s.size() << std::endl;
+	stream << std::string(indent+2, ' ') << "id: " << id.c_str() << std::endl;
+	stream << std::string(indent+2, ' ') << "size: " << s.size() << std::endl;
 	stream << std::string(indent+2, ' ') << "chunks: " << s.chunks().size() << std::endl;
+  if (not s.chunks().empty()) {
+    for (auto chunk: s.chunks()) {
+      YosysDebug::print(chunk, indent+2, stream);
+    }
+  }
 	stream << std::string(indent+2, ' ') << "bits: " << s.bits().size() << std::endl;
   if (not s.bits().empty()) {
     for (auto bit: s.bits()) {
@@ -52,8 +57,26 @@ void YosysDebug::print(
 void YosysDebug::print(const RTLIL::SigBit& b, size_t indent, std::ostream& stream) {
   stream << std::string(indent, ' ') << "Bit:";
   if (b.wire) {
-    stream << " wire:" << b.wire->name.c_str() << ", offset: " << b.offset << std::endl;
+    stream << " wire: " << b.wire->name.c_str() << ", offset: " << b.offset << std::endl;
   } else { 
-    stream << " data:" << b.data << std::endl;
+    stream << " data: " << b.data << std::endl;
+  }
+}
+
+void YosysDebug::print(const RTLIL::SigChunk& c, size_t indent, std::ostream& stream) {
+  stream << std::string(indent, ' ') << "Chunk:";
+  if (c.wire) {
+    stream << " wire: " << c.wire->name.c_str() << ", offset: " << c.offset << std::endl;
+  } else { 
+    stream << " data: ";
+    bool first = true;
+    for (auto d: c.data) {
+      if (not first) {
+        stream << ", ";
+      }
+      stream << d;
+      first = false;
+    }
+    stream << std::endl;
   }
 }

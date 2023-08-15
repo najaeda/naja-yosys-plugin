@@ -20,32 +20,6 @@ namespace fs = std::__fs::filesystem;
 
 namespace {
 
-SigMap sigmap;
-dict<SigBit, string> sigids;
-int sigidcounter;
-
-string get_bits(SigSpec sig)
-{
-	bool first = true;
-	string str = "[";
-	for (auto bit : sigmap(sig)) {
-		str += first ? " " : ", ";
-		first = false;
-		if (sigids.count(bit) == 0) {
-			string &s = sigids[bit];
-			if (bit.wire == nullptr) {
-				if (bit == State::S0) s = "\"0\"";
-				else if (bit == State::S1) s = "\"1\"";
-				else if (bit == State::Sz) s = "\"z\"";
-				else s = "\"x\"";
-			} else
-				s = stringf("%d", sigidcounter++);
-		}
-		str += sigids[bit];
-	}
-	return str + " ]";
-}
-
 std::string getName(const RTLIL::IdString& yosysName) {
   return RTLIL::unescape_id(yosysName);
 }
@@ -60,11 +34,162 @@ DBInterface::LibraryInterface::DesignInterface::Direction YosysToCapnPDirection(
   return direction;
 }
 
+int getSize(int msb, int lsb) {
+  return std::abs(lsb - msb) + 1;
+}
+
+struct Component {
+  int instanceID_ = 0;
+  bool isTerm_ = false;
+  bool isBus_ = false;
+  int termID_ = 0;
+  int bit_ = 0;
+  Component(int termID, bool isBus, int bit): isTerm_(true), isBus_(isBus), termID_(termID), bit_(bit) {}
+  Component(int instanceID, int termID, bool isBus, int bit): instanceID_(instanceID), isBus_(isBus), termID_(termID), bit_(bit) {}
+};
+
+struct Bit {
+  using Components = std::vector<Component>;
+  Bit() = default;
+
+  Components  components_ {};
+  int         bit_        {0};
+};
+
+struct Net {
+  using Bits = std::vector<Bit>;
+  bool  isBus_  {false};
+  int msb_ {0};
+  int lsb_ {0};
+  Bits  bits_   {};
+  Net(): bits_(1) {}
+  Net(int msb, int lsb): isBus_(true), msb_(msb), lsb_(lsb), bits_(getSize(msb, lsb)) {
+    int incr = (msb<lsb)?+1:-1;
+    int i=0;
+    for (auto& bit: bits_) {
+      bit.bit_ = msb_ + i*incr; 
+      ++i;
+    }
+  }
+};
+
+using Nets = std::map<const RTLIL::Wire*, Net>;
+using Terms = std::map<int, int>; //port_id, termid
 //-1 means bbox
-using Terms = std::map<std::string, int>; //name, termid
-using Nets = std::map<std::string, int>; //name, netid
 using Model = std::pair<int, Terms>;
 using Models = std::map<std::string, Model>;
+
+void dumpInstTermReference(
+    DBImplementation::LibraryImplementation::DesignImplementation::NetComponentReference::Builder& dumpComponent,
+    const Component& component) {
+  auto instTermRefenceBuilder = dumpComponent.initInstTermReference();
+  instTermRefenceBuilder.setInstanceID(component.instanceID_);
+  instTermRefenceBuilder.setTermID(component.termID_);
+  if (component.isBus_) {
+    instTermRefenceBuilder.setBit(component.bit_);
+  }
+#if SNL_YOSYS_PLUGIN_DEBUG
+  std::cerr << "Dumping inst term reference: " << component.instanceID_ << ":" << component.termID_;
+  if (component.isBus_) {
+    std::cerr << "[" << component.bit_ << "]";
+  }
+  std::cerr << std::endl;
+#endif
+}
+
+void dumpTermReference(
+    DBImplementation::LibraryImplementation::DesignImplementation::NetComponentReference::Builder& dumpComponent,
+    const Component& component) {
+  auto termRefenceBuilder = dumpComponent.initTermReference();
+  termRefenceBuilder.setTermID(component.termID_);
+  if (component.isBus_) {
+    termRefenceBuilder.setBit(component.bit_);
+  }
+#if SNL_YOSYS_PLUGIN_DEBUG
+  std::cerr << "Dumping term reference: " << component.termID_;
+  if (component.isBus_) {
+    std::cerr << "[" << component.bit_ << "]";
+  }
+  std::cerr << std::endl;
+#endif
+}
+
+void dumpNetComponentReference(
+    DBImplementation::LibraryImplementation::DesignImplementation::NetComponentReference::Builder& dumpComponent,
+    const Component& component) {
+  if (component.isTerm_) {
+    dumpTermReference(dumpComponent, component);
+  } else {
+    dumpInstTermReference(dumpComponent, component);
+  }
+}
+
+void dumpScalarNet(
+    DBImplementation::LibraryImplementation::DesignImplementation::Net::Builder& dumpNet,
+    const std::string& name,
+    const Net& net,
+    size_t id) {
+  auto scalarNetBuilder = dumpNet.initScalarNet();
+  scalarNetBuilder.setId(id);
+  scalarNetBuilder.setName(name);
+#if SNL_YOSYS_PLUGIN_DEBUG
+  std::cerr << "Dumping scalar net: " << name << " with ID: " << id << std::endl;
+#endif
+  assert(net.bits_.size() == 1);
+  auto bit = net.bits_[0];
+  size_t componentsSize = bit.components_.size();
+  if (componentsSize > 0) {
+    auto components = scalarNetBuilder.initComponents(componentsSize);
+    size_t componentID = 0;
+    for (auto component: bit.components_) {
+      auto componentRefBuilder = components[componentID++];
+      dumpNetComponentReference(componentRefBuilder, component);
+    }
+  }
+}
+
+void dumpBusNetBit(
+  DBImplementation::LibraryImplementation::DesignImplementation::BusNetBit::Builder& dumpBit,
+  const Bit& bit) {
+  dumpBit.setBit(bit.bit_);
+#if SNL_YOSYS_PLUGIN_DEBUG
+  std::cerr << "Dumping bus net bit: " << bit.bit_ << std::endl;
+#endif
+  size_t componentsSize = bit.components_.size();
+  if (componentsSize > 0) {
+    auto components = dumpBit.initComponents(componentsSize);
+    size_t id = 0;
+    for (auto component: bit.components_) {
+      auto componentRefBuilder = components[id++];
+      dumpNetComponentReference(componentRefBuilder, component);
+    }
+  }
+}
+
+void dumpBusNet(
+    DBImplementation::LibraryImplementation::DesignImplementation::Net::Builder& dumpNet,
+    const std::string& name,
+    const Net& net,
+    size_t id) {
+  auto busNetBuilder = dumpNet.initBusNet();
+  busNetBuilder.setId(id);
+  busNetBuilder.setName(name);
+  busNetBuilder.setMsb(net.msb_);
+  busNetBuilder.setLsb(net.lsb_);
+#if SNL_YOSYS_PLUGIN_DEBUG
+  std::cerr << "Dumping bus net: " << name << "[" << net.msb_ << ":" << net.lsb_ << "]" << std::endl;
+#endif
+  auto bits = busNetBuilder.initBits(getSize(net.msb_, net.lsb_));
+  size_t bid = 0;
+  for (auto bit: net.bits_) {
+    auto bitBuilder = bits[bid++];
+    dumpBusNetBit(bitBuilder, bit);
+  }
+}
+
+void dumpInstanceParameters() {
+
+}
 
 void dumpScalarTerm(
   DBInterface::LibraryInterface::DesignInterface::Term::Builder& term,
@@ -74,10 +199,10 @@ void dumpScalarTerm(
   auto scalarTermBuilder = term.initScalarTerm();
   scalarTermBuilder.setId(id);
   auto termName = getName(wire->name);
-  model.second[termName] = id;
+  model.second[wire->port_id] = id;
   scalarTermBuilder.setName(termName);
   scalarTermBuilder.setDirection(YosysToCapnPDirection(wire));
-  std::cerr << "Dumping scalar: " << termName << std::endl;
+  std::cerr << "Dumping scalar term: " << termName << std::endl;
 }
 
 void dumpBusTerm(
@@ -87,7 +212,7 @@ void dumpBusTerm(
   Model& model) {
   auto busTermBuilder = term.initBusTerm();
   auto termName = getName(wire->name);
-  model.second[termName] = id;
+  model.second[wire->port_id] = id;
   busTermBuilder.setId(id);
   busTermBuilder.setName(termName);
   busTermBuilder.setDirection(YosysToCapnPDirection(wire));
@@ -130,55 +255,67 @@ void dumpPorts(
   }
 }
 
-void dumpBusNet(
-  DBImplementation::LibraryImplementation::DesignImplementation::Net::Builder& net,
+void collectBusNet(
   const RTLIL::Wire* wire,
-  size_t id,
+  const Terms& terms,
   Nets& nets) {
-  auto busNetBuilder = net.initBusNet();
-  busNetBuilder.setId(id);
-  auto netName = getName(wire->name);
-  busNetBuilder.setName(netName);
   auto start = wire->start_offset;
   auto end = wire->start_offset + wire->width - 1;
   auto msb = (wire->upto) ? start : end;
   auto lsb = (wire->upto) ? end : start;
-  busNetBuilder.setMsb(msb);
-  busNetBuilder.setLsb(lsb);
-  nets[netName] = id;
-  std::cerr << "Dumping bus net: " << netName << "[" << msb << "," << lsb << "]" << std::endl;
+#if SNL_YOSYS_PLUGIN_DEBUG
+  std::cerr << "Collect bus net: " << getName(wire->name) << "[" << msb << "," << lsb << "]" << std::endl;
+#endif
+  auto insertion = nets.insert(std::make_pair(wire, Net(msb, lsb)));
+  assert(insertion.second);
+  if (wire->port_id != 0) {
+    auto it = insertion.first;
+    auto& net = it->second;
+    auto portIt = terms.find(wire->port_id);
+    size_t id = 0;
+    int incr = (wire->upto) ? +1 : -1;
+    for (auto bit=msb; (wire->upto)?bit<=lsb:bit>=lsb; bit+=incr) {
+      net.bits_[id].components_.emplace_back(Component(portIt->second, true, bit));
+#if SNL_YOSYS_PLUGIN_DEBUG
+      std::cerr << "Connect bus term bit: " << getName(wire->name) << "[" << bit << "], @" << id << std::endl;
+#endif
+      ++id;
+    }
+  }
 }
 
-void dumpScalarNet(
-  DBImplementation::LibraryImplementation::DesignImplementation::Net::Builder& net,
+void collectScalarNet(
   const RTLIL::Wire* wire,
-  size_t id,
+  const Terms& terms,
   Nets& nets) {
-  auto scalarNetBuilder = net.initScalarNet();
-  scalarNetBuilder.setId(id);
-  auto netName = getName(wire->name);
-  scalarNetBuilder.setName(netName);
-  nets[netName] = id;
-  std::cerr << "Dumping scalar net: " << netName << std::endl;
+  auto insertion = nets.insert(std::make_pair(wire, Net()));
+  assert(insertion.second);
+  //collect port
+  if (wire->port_id != 0) {
+    auto it = insertion.first;
+    auto& net = it->second;
+    auto portIt = terms.find(wire->port_id);
+    assert(portIt != terms.end());
+    assert(net.bits_.size() == 1);
+    net.bits_.back().components_.emplace_back(Component(portIt->second, false, 0));
+  }
 }
 
-void dumpWire(
+void collectWire(
   const RTLIL::Wire* wire,
-  DBImplementation::LibraryImplementation::DesignImplementation::Net::Builder& net,
-  size_t netID,
+  const Terms& terms,
   Nets& nets) {
+  //Will construct all nets and also collect terminals
 #if SNL_YOSYS_PLUGIN_DEBUG
   YosysDebug::print(wire, 0);
 #endif
   if (wire->width != 1) {
-    dumpBusNet(net, wire, netID, nets);
+    collectBusNet(wire, terms, nets);
   } else {
-    dumpScalarNet(net, wire, netID, nets);
+    collectScalarNet(wire, terms, nets);
   }
 }
 
-
-//taken from EDIFBackend;
 using Modules = std::set<RTLIL::Module*>;
 
 void dumpInterface(
@@ -220,10 +357,12 @@ void dumpInterface(
   size_t designID = 0;
   int topDesignID = -1;
   for (auto userModule: userModules) {
-
     if (userModule->get_bool_attribute(ID::top)) {
       topDesignID = designID;
     }
+    //if (topDesignID == -1) {
+    //  topDesignID = designID;
+    //}
     auto design = designs[designID];
     design.setId(designID);
     auto name = getName(userModule->name);
@@ -239,37 +378,13 @@ void dumpInterface(
     ++designID;
   }
 
-  if (topDesignID > 0) {
+  if (topDesignID != -1) {
     auto designReferenceBuilder = db.initTopDesignReference();
     designReferenceBuilder.setDbID(1);
     designReferenceBuilder.setLibraryID(1);
     designReferenceBuilder.setDesignID(topDesignID);
   }
 
-
-
-#if 0
-  size_t designsSize = design->modules().size();
-  auto designs = library.initDesignInterfaces(designsSize);
-  size_t id = 0;
-  int topModuleID = -1;
-  for (auto module : design->modules()) {
-    if (module->get_blackbox_attribute()) {
-      models[module->name.str()] = -1;
-      continue;
-    }
-
-    std::cerr << "Dumping module: " << log_id(module->name) << std::endl;
-	  
-    auto design = designs[id];
-    design.setId(id);
-    design.setName(module->name.str());
-    models[module->name.str()] = id;
-    
-    }
-    ++id;
-  }
-#endif
   int fd = open(
     interfacePath.c_str(),
     O_CREAT | O_WRONLY,
@@ -279,6 +394,7 @@ void dumpInterface(
 }
 
 void dumpImplementation(
+  const RTLIL::Design* ydesign,
   const Modules& userModules,
   const fs::path& implementationPath, const Models& models) {
   ::capnp::MallocMessageBuilder message;
@@ -291,29 +407,41 @@ void dumpImplementation(
 
   auto designs = library.initDesignImplementations(userModules.size());
   size_t designID = 0;
-  for (auto userModule: userModules) {
+  for (auto& userModule: userModules) {
+    auto mit = models.find(getName(userModule->name));
+    assert(mit != models.end());
+    const Terms& terms = mit->second.second;
     auto design = designs[designID]; 
     design.setId(designID++);
-    size_t netsSize = userModule->wires().size();
-    Nets dumpedNets;
-    if (netsSize > 0) {
-      auto nets = design.initNets(netsSize);
-      size_t netID = 0;
-      for (auto wire : userModule->wires()) {
-        auto net = nets[netID];
-        dumpWire(wire, net, netID++, dumpedNets); 
-      }
+    //collect all nets: bus and scalar
+    //collect terminals at the same time
+    Nets nets;
+    for (auto wire: userModule->wires()) {
+      collectWire(wire, terms, nets); 
     }
     size_t instancesSize = userModule->cells().size();
     if (instancesSize > 0) {
       auto instances = design.initInstances(instancesSize);
       size_t instanceID = 0;
+      size_t autoNameID = 0;
       for (auto cell: userModule->cells()) {
+        std::string name;
+        //rename instance
+        auto yosysName = cell->name.c_str();
+        if (*yosysName == '$') {
+          name = '_' + std::to_string(autoNameID++) + '_';
+        } else {
+          name = getName(cell->name);
+        }
+        //
+#if SNL_YOSYS_PLUGIN_DEBUG
         std::cerr << "Dumping cell/instance implementation: " << log_id(getName(cell->name)) << std::endl;
+        std::cerr << "Renamed to: " << name << std::endl;
+#endif
         YosysDebug::print(cell, 0);
         auto instance = instances[instanceID];
-        instance.setId(instanceID++);
-        instance.setName(cell->name.str());
+        instance.setId(instanceID);
+        instance.setName(name);
         auto modelReferenceBuilder = instance.initModelReference();
         modelReferenceBuilder.setDbID(1);
         modelReferenceBuilder.setLibraryID(0);
@@ -324,53 +452,68 @@ void dumpImplementation(
         const auto& model = modelIt->second;
         auto modelID = model.first;
         modelReferenceBuilder.setDesignID(modelID);
+        dumpInstanceParameters();
+        auto module = ydesign->module(cell->type);
 
         for (auto& conn: cell->connections()) {
 #if SNL_YOSYS_PLUGIN_DEBUG
           YosysDebug::print(conn.first, conn.second, 0);
 #endif
-          RTLIL::SigSpec sig = sigmap(conn.second);
-          auto termName = getName(conn.first);
-          std::string netName = log_signal(sig);
-          for (size_t i = 0; i < netName.size(); i++) {
-						if (netName[i] == ' ' || netName[i] == '\\') {
-							netName.erase(netName.begin() + i--);
-            }
-          }
-
-          std::cerr << stringf("            %s: %s, %i", termName.c_str(), netName.c_str(), sig.size()) << std::endl;
-          auto tit = model.second.find(termName);
-          if (tit == model.second.end()) {
-            log_error("Term %s not found in map for cell %s", termName.c_str(), log_id(cell->name));
-          }
-			  }
-#if 0
-        bool first_arg = true;
-        std::set<RTLIL::IdString> numbered_ports;
-        for (int i = 1; true; i++) {
-		      char str[16];
-		      snprintf(str, 16, "$%d", i);
-		      for (auto it = cell->connections().begin(); it != cell->connections().end(); ++it) {
-			      if (it->first != str) {
-				      continue;
-            }
-			      if (!first_arg) {
-              std::cerr << stringf(",");
-            }
-			      first_arg = false;
-            //std::cerr << stringf("\n%s  ", indent.c_str());
-			      //dump_sigspec(f, it->second);
-			      numbered_ports.insert(it->first);
-			      //goto found_numbered_port;
-          }
-        }
+          //Find net
+          auto ss = conn.second;
+          assert(ss.size() == 1);
+          auto bit = ss.bits()[0];
+          auto w = bit.wire;
+          auto offset = bit.offset;
+          //Find w in map
+          auto nit = nets.find(w);
+          assert(nit != nets.end());
+#if SNL_YOSYS_PLUGIN_DEBUG
+          std::cerr << "Found: " << std::endl;
+          YosysDebug::print(w, 0);
 #endif
-        //for (auto &c : cell->connections()) {
-        //  std::cerr << "Dumping cell connection: " << getName(c.first) << std::endl;
-        //  if (cell->output(c.first)) {
-				//		sigmap.add(c.second);
-        //  }
-        //}
+          auto& n = nit->second;
+          assert(n.bits_.size() == w->width);
+          auto pw = module->wire(conn.first);
+          assert(pw);
+
+          //Find inst term
+          const auto& terms = model.second;
+          auto it = terms.find(pw->port_id);
+          assert(it != terms.end());
+          auto tid = it->second;
+          if (n.bits_.size() > 1) {
+            n.bits_[offset].components_.emplace_back(Component(instanceID, tid, true, offset));
+          } else {
+            n.bits_.back().components_.emplace_back(Component(instanceID, tid, false, 0));
+          }
+          std::cerr << "tid: " << tid << std::endl;
+			  }
+        ++instanceID;
+      }
+
+      if (not nets.empty()) {
+        auto dumpNets = design.initNets(nets.size());
+        size_t netID = 0;
+        size_t autoNameID = 0;
+        for (auto& [wire, net]: nets) {
+          std::string name;
+          //rename net or name net
+          auto yosysName = wire->name.c_str();
+          if (*yosysName == '$') {
+            name = '_' + std::to_string(autoNameID++) + '_';
+          } else {
+            name = getName(wire->name);
+          }
+          //
+          auto dumpNet = dumpNets[netID];
+          if (net.isBus_) {
+            dumpBusNet(dumpNet, name, net, netID);
+          } else {
+            dumpScalarNet(dumpNet, name, net, netID);
+          }
+          ++netID;
+        }
       }
     }
   }
@@ -381,13 +524,6 @@ void dumpImplementation(
   writePackedMessageToFd(fd, message);
   close(fd);
 }
-
-#if 0
-    
-
-  }
-
-#endif
 
 void dumpManifest(const fs::path& dir) {
   fs::path manifestPath(dir/"snl.mf");
@@ -430,7 +566,7 @@ struct SNLBackend: public Backend {
     
     Models models;
     dumpInterface(primitiveModules, userModules, dir/"db_interface.snl", models);
-    dumpImplementation(userModules, dir/"db_implementation.snl", models);
+    dumpImplementation(design, userModules, dir/"db_implementation.snl", models);
   }
 
 	void help() override
