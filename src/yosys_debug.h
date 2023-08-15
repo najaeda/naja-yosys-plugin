@@ -11,6 +11,7 @@ class YosysDebug {
     static void print(const Yosys::RTLIL::Cell* cell, size_t indent, std::ostream& stream = std::cerr);
     static void print(const Yosys::RTLIL::SigBit& bit, size_t indent, std::ostream& stream = std::cerr);
     static void print(const Yosys::RTLIL::SigChunk& c, size_t indent, std::ostream& stream = std::cerr);
+    static void print(const Yosys::RTLIL::State& s, size_t indent, std::ostream& stream = std::cerr);
     static void printParameter(const Yosys::RTLIL::IdString& id, const Yosys::RTLIL::Const& v,
         size_t indent, std::ostream& stream = std::cerr);
     static void print(

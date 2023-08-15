@@ -54,12 +54,26 @@ void YosysDebug::print(
   }
 }
 
+void YosysDebug::print(const RTLIL::State& s, size_t indent, std::ostream& stream) {
+  stream << std::string(indent, ' ') << " state: ";
+  switch (s) {
+    case RTLIL::State::S0: stream << "S0"; break;
+    case RTLIL::State::S1: stream << "S1"; break;
+    case RTLIL::State::Sx: stream << "Sx"; break;
+    case RTLIL::State::Sz: stream << "Sz"; break;
+    case RTLIL::State::Sa: stream << "Sa"; break;
+    case RTLIL::State::Sm: stream << "Sm"; break;
+	}
+  stream << std::endl;
+}
+
 void YosysDebug::print(const RTLIL::SigBit& b, size_t indent, std::ostream& stream) {
   stream << std::string(indent, ' ') << "Bit:";
   if (b.wire) {
     stream << " wire: " << b.wire->name.c_str() << ", offset: " << b.offset << std::endl;
   } else { 
-    stream << " data: " << b.data << std::endl;
+    stream << " data: " << std::endl;
+    YosysDebug::print(b.data, indent+2, stream);
   }
 }
 

@@ -187,8 +187,54 @@ void dumpBusNet(
   }
 }
 
-void dumpInstanceParameters() {
+void dumpInstParameter(
+  DBImplementation::LibraryImplementation::DesignImplementation::Instance::InstParameter::Builder& instParameter,
+  const std::string& name) {
+  instParameter.setName(name);
+  //instParameter.setValue(snlInstParameter->getValue());
+}
 
+void dumpInstanceParameters(
+  DBImplementation::LibraryImplementation::DesignImplementation::Instance::Builder& instance,
+  const RTLIL::Cell* cell) {
+  size_t instParametersSize = cell->parameters.size();
+  if (instParametersSize > 0) { 
+    auto instParameters = instance.initInstParameters(instParametersSize);
+    size_t id = 0;
+    for (auto it = cell->parameters.begin(); it != cell->parameters.end(); ++it) {
+      auto instParameterBuilder = instParameters[id++];
+      dumpInstParameter(instParameterBuilder, getName(it->first.c_str()));
+    }
+  }
+}
+
+void dumpParameter(
+  DBInterface::LibraryInterface::DesignInterface::Parameter::Builder& parameter,
+  const std::string& name) {
+  parameter.setName(name);
+  //parameter.setType(SNLtoCapNpParameterType(snlParameter->getType()));
+  //parameter.setValue(snlParameter->getValue());
+}
+
+void dumpParameters(
+  DBInterface::LibraryInterface::DesignInterface::Builder& design,
+  RTLIL::Module* module) {
+#if SNL_YOSYS_PLUGIN_DEBUG
+  std::cerr << "Dumping parameters: " << module->avail_parameters.size() << std::endl;
+  for (auto parameter: module->avail_parameters) {
+    std::cerr << "Dumping parameter: " << parameter.c_str() << std::endl;
+
+  }
+#endif
+  size_t parametersSize = module->avail_parameters.size();
+  if (parametersSize > 0) {
+    size_t id = 0;
+    auto parameters = design.initParameters(parametersSize);
+    for (auto parameter: module->avail_parameters) {
+      auto parameterBuilder = parameters[id++];
+      dumpParameter(parameterBuilder, getName(parameter));
+    }
+  }
 }
 
 void dumpScalarTerm(
@@ -348,7 +394,9 @@ void dumpInterface(
     auto& model = it.first->second;
     primitive.setName(name);
     primitive.setType(DBInterface::LibraryInterface::DesignType::PRIMITIVE);
-    //collect ports
+    //dump parameters
+    dumpParameters(primitive, primitiveModule);
+    //dump ports
     dumpPorts(primitive, primitiveModule, model);
     ++primitiveID;
   }
@@ -360,9 +408,6 @@ void dumpInterface(
     if (userModule->get_bool_attribute(ID::top)) {
       topDesignID = designID;
     }
-    //if (topDesignID == -1) {
-    //  topDesignID = designID;
-    //}
     auto design = designs[designID];
     design.setId(designID);
     auto name = getName(userModule->name);
@@ -452,7 +497,7 @@ void dumpImplementation(
         const auto& model = modelIt->second;
         auto modelID = model.first;
         modelReferenceBuilder.setDesignID(modelID);
-        dumpInstanceParameters();
+        dumpInstanceParameters(instance, cell);
         auto module = ydesign->module(cell->type);
 
         for (auto& conn: cell->connections()) {
