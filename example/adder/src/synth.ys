@@ -1,6 +1,0 @@
-read_verilog src/adder.v
-synth_xilinx -top adder
-write_json adder.json
-write_verilog adder_netlist.v
-write_edif adder_netlist.edf
-write_snl 

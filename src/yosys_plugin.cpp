@@ -75,8 +75,13 @@ struct Net {
 
 using Nets = std::map<const RTLIL::Wire*, Net>;
 using Terms = std::map<int, int>; //port_id, termid
-//-1 means bbox
-using Model = std::pair<int, Terms>;
+
+struct Model {
+  int   libraryID_  {0};
+  int   designID_   {0};
+  Terms terms_      {};
+  Model(int libraryID, int designID): libraryID_(libraryID), designID_(designID) {}
+};
 using Models = std::map<std::string, Model>;
 
 void dumpInstTermReference(
@@ -245,7 +250,7 @@ void dumpScalarTerm(
   auto scalarTermBuilder = term.initScalarTerm();
   scalarTermBuilder.setId(id);
   auto termName = getName(wire->name);
-  model.second[wire->port_id] = id;
+  model.terms_[wire->port_id] = id;
   scalarTermBuilder.setName(termName);
   scalarTermBuilder.setDirection(YosysToCapnPDirection(wire));
   std::cerr << "Dumping scalar term: " << termName << std::endl;
@@ -258,7 +263,7 @@ void dumpBusTerm(
   Model& model) {
   auto busTermBuilder = term.initBusTerm();
   auto termName = getName(wire->name);
-  model.second[wire->port_id] = id;
+  model.terms_[wire->port_id] = id;
   busTermBuilder.setId(id);
   busTermBuilder.setName(termName);
   busTermBuilder.setDirection(YosysToCapnPDirection(wire));
@@ -389,7 +394,7 @@ void dumpInterface(
     if (models.find(name) != models.end()) {
       log_error("Model %s already in map", log_id(name));
     }
-    auto it = models.insert(std::pair<std::string, Model>(name, Model(primitiveID, Terms())));
+    auto it = models.insert(std::pair<std::string, Model>(name, Model(0, primitiveID)));
     assert(it.second);
     auto& model = it.first->second;
     primitive.setName(name);
@@ -413,7 +418,7 @@ void dumpInterface(
     auto name = getName(userModule->name);
     std::cerr << "Dumping module: " << name << std::endl;
     design.setName(name);
-    auto it = models.insert(std::pair<std::string, Model>(name, Model(designID, Terms())));
+    auto it = models.insert(std::pair<std::string, Model>(name, Model(1, designID)));
     assert(it.second);
     auto& model = it.first->second;
 
@@ -455,7 +460,7 @@ void dumpImplementation(
   for (auto& userModule: userModules) {
     auto mit = models.find(getName(userModule->name));
     assert(mit != models.end());
-    const Terms& terms = mit->second.second;
+    const Terms& terms = mit->second.terms_;
     auto design = designs[designID]; 
     design.setId(designID++);
     //collect all nets: bus and scalar
@@ -480,7 +485,7 @@ void dumpImplementation(
         }
         //
 #if SNL_YOSYS_PLUGIN_DEBUG
-        std::cerr << "Dumping cell/instance implementation: " << log_id(getName(cell->name)) << std::endl;
+        std::cerr << "Dumping cell/instance implementation: " << getName(cell->name) << std::endl;
         std::cerr << "Renamed to: " << name << std::endl;
 #endif
         YosysDebug::print(cell, 0);
@@ -489,13 +494,14 @@ void dumpImplementation(
         instance.setName(name);
         auto modelReferenceBuilder = instance.initModelReference();
         modelReferenceBuilder.setDbID(1);
-        modelReferenceBuilder.setLibraryID(0);
         auto modelIt = models.find(getName(cell->type));
         if (modelIt == models.end()) {
-          log_error("Model type %s not found in map for cell %s", log_id(cell->type), log_id(cell->name));
+          log_error("Model type %s not found in map for cell %s", cell->type.c_str(), cell->name.c_str());
         }
         const auto& model = modelIt->second;
-        auto modelID = model.first;
+        auto libraryID = model.libraryID_;
+        auto modelID = model.designID_;
+        modelReferenceBuilder.setLibraryID(libraryID);
         modelReferenceBuilder.setDesignID(modelID);
         dumpInstanceParameters(instance, cell);
         auto module = ydesign->module(cell->type);
@@ -506,9 +512,17 @@ void dumpImplementation(
 #endif
           //Find net
           auto ss = conn.second;
+          if (ss.size() != 1) {
+            //FIXME !!
+            continue;
+          }
           assert(ss.size() == 1);
           auto bit = ss.bits()[0];
           auto w = bit.wire;
+          if (not w) {
+            //FIXME: constants
+            continue;
+          }
           auto offset = bit.offset;
           //Find w in map
           auto nit = nets.find(w);
@@ -523,7 +537,7 @@ void dumpImplementation(
           assert(pw);
 
           //Find inst term
-          const auto& terms = model.second;
+          const auto& terms = model.terms_;
           auto it = terms.find(pw->port_id);
           assert(it != terms.end());
           auto tid = it->second;

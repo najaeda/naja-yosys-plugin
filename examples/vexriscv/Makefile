@@ -1,7 +1,13 @@
 YOSYS ?= yosys
-SNL_X2Y ?= ../../build/src/snl/snippets/cpp/snl_vrl_snippet
+SNL_X2Y ?= /Users/xtof/WORK/naja/build/src/apps/x2y/naja_x2y
 
 all: vexriscv.demo.GenFull_snl.v 
+
+interface.txt:
+	capnp convert --verbose packed:text ../../capnp/snl_interface.capnp DBInterface < snl/db_interface.snl > interface.txt
+
+implementation.txt:
+	capnp decode --packed ../../capnp/snl_implementation.capnp DBImplementation < snl/db_implementation.snl > implementation.txt
 
 vexriscv.demo.GenFull_netlist.v: src/vexriscv.demo.GenFull.v
 	${YOSYS} -m snl-yosys-plugin src/synth.ys
