@@ -1,4 +1,4 @@
-# naja_yosys_plugin
+# naja-yosys-plugin
 
 Yosys ▶️ Naja interchange format backend plugin.
 
