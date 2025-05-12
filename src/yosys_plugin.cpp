@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fcntl.h>
 #include <unistd.h>
+#include <cassert>
 
 #include <capnp/message.h>
 #include <capnp/serialize-packed.h>
