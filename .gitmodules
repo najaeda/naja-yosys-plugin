@@ -1,0 +1,3 @@
+[submodule "thirdparty/naja-if"]
+	path = thirdparty/naja-if
+	url = https://github.com/najaeda/naja-if
