@@ -17,8 +17,6 @@
 USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
-namespace fs = std::__fs::filesystem;
-
 namespace {
 
 std::string getName(const RTLIL::IdString& yosysName) {
@@ -373,7 +371,7 @@ using Modules = std::set<RTLIL::Module*>;
 void dumpInterface(
   const Modules& primitiveModules,
   const Modules& userModules,
-  const fs::path& interfacePath, Models& models) {
+  const std::filesystem::path& interfacePath, Models& models) {
   ::capnp::MallocMessageBuilder message;
 
   DBInterface::Builder db = message.initRoot<DBInterface>();
@@ -447,7 +445,7 @@ void dumpInterface(
 void dumpImplementation(
   const RTLIL::Design* ydesign,
   const Modules& userModules,
-  const fs::path& implementationPath, const Models& models) {
+  const std::filesystem::path& implementationPath, const Models& models) {
   ::capnp::MallocMessageBuilder message;
 
   DBImplementation::Builder db = message.initRoot<DBImplementation>();
@@ -470,7 +468,17 @@ void dumpImplementation(
     for (auto wire: userModule->wires()) {
       collectWire(wire, terms, nets); 
     }
-    size_t instancesSize = userModule->cells().size();
+    size_t instancesSize = 0;
+    //filter special instances (for instance $print))
+    for (auto cell: userModule->cells()) {
+      auto modelIt = models.find(getName(cell->type));
+      if (modelIt == models.end()) {
+        log_warning("Model type %s not found in map for cell %s", cell->type.c_str(), cell->name.c_str());
+      } else {
+        ++instancesSize;
+      }
+    }
+
     if (instancesSize > 0) {
       auto instances = design.initInstances(instancesSize);
       size_t instanceID = 0;
@@ -484,6 +492,10 @@ void dumpImplementation(
         } else {
           name = getName(cell->name);
         }
+        auto modelIt = models.find(getName(cell->type));
+        if (modelIt == models.end()) {
+          continue;
+        }
         //
 #if SNL_YOSYS_PLUGIN_DEBUG
         std::cerr << "Dumping cell/instance implementation: " << getName(cell->name) << std::endl;
@@ -495,10 +507,6 @@ void dumpImplementation(
         instance.setName(name);
         auto modelReferenceBuilder = instance.initModelReference();
         modelReferenceBuilder.setDbID(1);
-        auto modelIt = models.find(getName(cell->type));
-        if (modelIt == models.end()) {
-          log_error("Model type %s not found in map for cell %s", cell->type.c_str(), cell->name.c_str());
-        }
         const auto& model = modelIt->second;
         auto libraryID = model.libraryID_;
         auto modelID = model.designID_;
@@ -533,7 +541,7 @@ void dumpImplementation(
           YosysDebug::print(w, 0);
 #endif
           auto& n = nit->second;
-          assert(n.bits_.size() == w->width);
+          assert((int)n.bits_.size() == w->width);
           auto pw = module->wire(conn.first);
           assert(pw);
 
@@ -585,8 +593,8 @@ void dumpImplementation(
   close(fd);
 }
 
-void dumpManifest(const fs::path& dir) {
-  fs::path manifestPath(dir/"snl.mf");
+void dumpManifest(const std::filesystem::path& dir) {
+  std::filesystem::path manifestPath(dir/"snl.mf");
   std::ofstream stream;
   stream.open(manifestPath, std::ofstream::out);
   stream << "V"
@@ -603,8 +611,8 @@ struct SNLBackend: public Backend {
 	void execute(std::ostream *&f, std::string filename, std::vector<std::string> args, RTLIL::Design *design) override {
     log_header(design, "Executing Naja SNL backend.\n");
 
-    fs::path dir("snl");
-    fs::create_directory(dir);
+    std::filesystem::path dir("snl");
+    std::filesystem::create_directory(dir);
     dumpManifest(dir);
     //SNLDumpManifest::dump(path);
 
@@ -618,7 +626,11 @@ struct SNLBackend: public Backend {
       userModules.insert(module);
       for (auto cell: module->cells()) {
         auto model = design->module(cell->type); 
-				if (model->get_blackbox_attribute()) {
+        if (not model) {
+          std::cerr << "cannot find module for "
+            << getName(cell->name)
+            << " of cell type: " << cell->type.c_str() << std::endl;
+        } else if (model->get_blackbox_attribute()) {
           primitiveModules.insert(model);
         }
       }

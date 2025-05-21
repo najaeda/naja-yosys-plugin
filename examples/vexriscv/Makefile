@@ -1,4 +1,4 @@
-YOSYS ?= yosys
+YOSYS ?= ${YOSYS_SRC}/yosys
 SNL_X2Y ?= /Users/xtof/WORK/naja/build/src/apps/x2y/naja_x2y
 
 all: vexriscv.demo.GenFull_snl.v 
