@@ -1,6 +1,6 @@
 CXX := $(shell yosys-config --cxx)
 YOSYS_LD_FLAGS := $(shell yosys-config --ldflags --ldlibs)
-CXX_FLAGS ?=
+CXX_FLAGS ?= -I/opt/homebrew/Cellar/capnp/1.1.0_1/include -I$(PWD)/capnp
 YOSYS_CXX_FLAGS := $(shell yosys-config --cxxflags)
 YOSYS_INCLUDES ?= $(YOSYS_SRC)
 
@@ -8,7 +8,7 @@ OBJECTS = yosys_plugin.o yosys_debug.o snl_common.capnp.o snl_interface.capnp.o 
 LIBNAME = snl-yosys-plugin.so
 # Default command substitution for yosys
 YOSYS_DESTDIR ?= $(shell yosys-config --datdir)
-INCDIRS = /opt/homebrew/include
+INCDIRS = /opt/homebrew/Cellar/capnp/1.1.0_1/include 
 
 all: $(LIBNAME)
 
@@ -19,7 +19,7 @@ capnp/%.capnp.c++: capnp/%.capnp
 	capnp compile -oc++ $<
 
 %.capnp.o: capnp/%.capnp.c++
-	$(CXX) $(CXXFLAGS) -isystem /opt/homebrew/include -std=gnu++20 -o $@ -c $<
+	$(CXX) $(CXXFLAGS) -isystem /opt/homebrew/Cellar/capnp/1.1.0_1/include -std=gnu++20 -o $@ -c $<
 
 yosys_%.o: src/yosys_%.cpp snl_common.capnp.o snl_interface.capnp.o snl_implementation.capnp.o
 	#$(CXX) -std=c++20 -Wall -Wextra -ggdb -Icapnp -I$(INCDIRS) -I$(YOSYS) -MD -MP -DSNL_YOSYS_PLUGIN_DEBUG -D_YOSYS_ -fPIC -Os -c $< 

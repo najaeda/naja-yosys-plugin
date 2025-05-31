@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include <cassert>
 
+#ifdef VOID
+#undef VOID
+#endif
 #include <capnp/message.h>
 #include <capnp/serialize-packed.h>
 
