@@ -16,11 +16,12 @@
 #include "snl_implementation.capnp.h"
 #include "yosys_debug.h"
 
+#define SNL_YOSYS_PLUGIN_DEBUG 1
 
 USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
-namespace {
+//namespace {
 
 std::string getName(const RTLIL::IdString& yosysName) {
   return RTLIL::unescape_id(yosysName);
@@ -143,6 +144,7 @@ void dumpScalarNet(
   std::cerr << "Dumping scalar net: " << name << " with ID: " << id << std::endl;
 #endif
   assert(net.bits_.size() == 1);
+  printf("Dumping scalar net: %s with ID: %zu\n", name.c_str(), id);
   auto bit = net.bits_[0];
   size_t componentsSize = bit.components_.size();
   if (componentsSize > 0) {
@@ -607,7 +609,7 @@ void dumpManifest(const std::filesystem::path& dir) {
     << std::endl;
 }
 
-}
+//}
 
 struct SNLBackend: public Backend {
   SNLBackend() : Backend("snl", "write design to Naja SNL netlist file") {}
