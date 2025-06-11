@@ -12,8 +12,8 @@
 #include <capnp/message.h>
 #include <capnp/serialize-packed.h>
 
-#include "snl_interface.capnp.h"
-#include "snl_implementation.capnp.h"
+#include "naja_nl_interface.capnp.h"
+#include "naja_nl_implementation.capnp.h"
 #include "yosys_debug.h"
 
 #define SNL_YOSYS_PLUGIN_DEBUG 1
@@ -27,12 +27,12 @@ std::string getName(const RTLIL::IdString& yosysName) {
   return RTLIL::unescape_id(yosysName);
 }
 
-DBInterface::LibraryInterface::DesignInterface::Direction YosysToCapnPDirection(const RTLIL::Wire* wire) {
-  auto direction = DBInterface::LibraryInterface::DesignInterface::Direction::INOUT;
+Direction YosysToCapnPDirection(const RTLIL::Wire* wire) {
+  auto direction = Direction::INOUT;
 	if (!wire->port_output) {
-    direction = DBInterface::LibraryInterface::DesignInterface::Direction::INPUT;
+    direction = Direction::INPUT;
   } else if (!wire->port_input) {
-    direction = DBInterface::LibraryInterface::DesignInterface::Direction::OUTPUT;
+    direction = Direction::OUTPUT;
   }
   return direction;
 }
@@ -88,7 +88,7 @@ struct Model {
 using Models = std::map<std::string, Model>;
 
 void dumpInstTermReference(
-    DBImplementation::LibraryImplementation::DesignImplementation::NetComponentReference::Builder& dumpComponent,
+    DBImplementation::NetComponentReference::Builder& dumpComponent,
     const Component& component) {
   auto instTermRefenceBuilder = dumpComponent.initInstTermReference();
   instTermRefenceBuilder.setInstanceID(component.instanceID_);
@@ -106,7 +106,7 @@ void dumpInstTermReference(
 }
 
 void dumpTermReference(
-    DBImplementation::LibraryImplementation::DesignImplementation::NetComponentReference::Builder& dumpComponent,
+    DBImplementation::NetComponentReference::Builder& dumpComponent,
     const Component& component) {
   auto termRefenceBuilder = dumpComponent.initTermReference();
   termRefenceBuilder.setTermID(component.termID_);
@@ -123,7 +123,7 @@ void dumpTermReference(
 }
 
 void dumpNetComponentReference(
-    DBImplementation::LibraryImplementation::DesignImplementation::NetComponentReference::Builder& dumpComponent,
+    DBImplementation::NetComponentReference::Builder& dumpComponent,
     const Component& component) {
   if (component.isTerm_) {
     dumpTermReference(dumpComponent, component);
@@ -133,7 +133,7 @@ void dumpNetComponentReference(
 }
 
 void dumpScalarNet(
-    DBImplementation::LibraryImplementation::DesignImplementation::Net::Builder& dumpNet,
+    DBImplementation::LibraryImplementation::SNLDesignImplementation::Net::Builder& dumpNet,
     const std::string& name,
     const Net& net,
     size_t id) {
@@ -158,7 +158,7 @@ void dumpScalarNet(
 }
 
 void dumpBusNetBit(
-  DBImplementation::LibraryImplementation::DesignImplementation::BusNetBit::Builder& dumpBit,
+  DBImplementation::LibraryImplementation::SNLDesignImplementation::BusNetBit::Builder& dumpBit,
   const Bit& bit) {
   dumpBit.setBit(bit.bit_);
 #if SNL_YOSYS_PLUGIN_DEBUG
@@ -176,7 +176,7 @@ void dumpBusNetBit(
 }
 
 void dumpBusNet(
-    DBImplementation::LibraryImplementation::DesignImplementation::Net::Builder& dumpNet,
+    DBImplementation::LibraryImplementation::SNLDesignImplementation::Net::Builder& dumpNet,
     const std::string& name,
     const Net& net,
     size_t id) {
@@ -197,14 +197,14 @@ void dumpBusNet(
 }
 
 void dumpInstParameter(
-  DBImplementation::LibraryImplementation::DesignImplementation::Instance::InstParameter::Builder& instParameter,
+  DBImplementation::LibraryImplementation::SNLDesignImplementation::Instance::InstParameter::Builder& instParameter,
   const std::string& name) {
   instParameter.setName(name);
   //instParameter.setValue(snlInstParameter->getValue());
 }
 
 void dumpInstanceParameters(
-  DBImplementation::LibraryImplementation::DesignImplementation::Instance::Builder& instance,
+  DBImplementation::LibraryImplementation::SNLDesignImplementation::Instance::Builder& instance,
   const RTLIL::Cell* cell) {
   size_t instParametersSize = cell->parameters.size();
   if (instParametersSize > 0) { 
@@ -218,7 +218,7 @@ void dumpInstanceParameters(
 }
 
 void dumpParameter(
-  DBInterface::LibraryInterface::DesignInterface::Parameter::Builder& parameter,
+  SNLDesignInterface::Parameter::Builder& parameter,
   const std::string& name) {
   parameter.setName(name);
   //parameter.setType(SNLtoCapNpParameterType(snlParameter->getType()));
@@ -226,7 +226,7 @@ void dumpParameter(
 }
 
 void dumpParameters(
-  DBInterface::LibraryInterface::DesignInterface::Builder& design,
+  SNLDesignInterface::Builder& design,
   RTLIL::Module* module) {
 #if SNL_YOSYS_PLUGIN_DEBUG
   std::cerr << "Dumping parameters: " << module->avail_parameters.size() << std::endl;
@@ -247,7 +247,7 @@ void dumpParameters(
 }
 
 void dumpScalarTerm(
-  DBInterface::LibraryInterface::DesignInterface::Term::Builder& term,
+  SNLDesignInterface::Term::Builder& term,
   const RTLIL::Wire* wire,
   size_t id,
   Model& model) {
@@ -257,11 +257,14 @@ void dumpScalarTerm(
   model.terms_[wire->port_id] = id;
   scalarTermBuilder.setName(termName);
   scalarTermBuilder.setDirection(YosysToCapnPDirection(wire));
+  //std::cerr << "ID: " << id << ", Name: " << termName << ", Port ID: " << wire->port_id << std::endl;
+  printf("Dumping scalar builder: %s\n", scalarTermBuilder.toString().flatten().cStr());
+  printf("Dumping scalar term: %s with ID: %zu, Port ID: %d\n", termName.c_str(), id, wire->port_id);
   std::cerr << "Dumping scalar term: " << termName << std::endl;
 }
 
 void dumpBusTerm(
-  DBInterface::LibraryInterface::DesignInterface::Term::Builder& term,
+  SNLDesignInterface::Term::Builder& term,
   const RTLIL::Wire* wire,
   size_t id,
   Model& model) {
@@ -281,7 +284,7 @@ void dumpBusTerm(
 }
 
 void dumpPorts(
-  DBInterface::LibraryInterface::DesignInterface::Builder& design,
+  SNLDesignInterface::Builder& design,
   RTLIL::Module* module,
   Model& model) {
   using Ports = std::vector<RTLIL::Wire*>;
@@ -388,7 +391,7 @@ void dumpInterface(
   auto designsLibrary = libraries[1];
   designsLibrary.setId(1);
 
-  auto primitives = primitivesLibrary.initDesignInterfaces(primitiveModules.size());
+  auto primitives = primitivesLibrary.initSnlDesignInterfaces(primitiveModules.size());
   size_t primitiveID = 0;
   for (auto primitiveModule: primitiveModules) {
     auto primitive = primitives[primitiveID];
@@ -402,7 +405,7 @@ void dumpInterface(
     assert(it.second);
     auto& model = it.first->second;
     primitive.setName(name);
-    primitive.setType(DBInterface::LibraryInterface::DesignType::PRIMITIVE);
+    primitive.setType(DesignType::PRIMITIVE);
     //dump parameters
     dumpParameters(primitive, primitiveModule);
     //dump ports
@@ -410,7 +413,7 @@ void dumpInterface(
     ++primitiveID;
   }
 
-  auto designs = designsLibrary.initDesignInterfaces(userModules.size());
+  auto designs = designsLibrary.initSnlDesignInterfaces(userModules.size());
   size_t designID = 0;
   int topDesignID = -1;
   for (auto userModule: userModules) {
@@ -459,7 +462,7 @@ void dumpImplementation(
   auto library = libraries[0];
   library.setId(1); 
 
-  auto designs = library.initDesignImplementations(userModules.size());
+  auto designs = library.initSnlDesignImplementations(userModules.size());
   size_t designID = 0;
   for (auto& userModule: userModules) {
     auto mit = models.find(getName(userModule->name));
