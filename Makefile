@@ -1,5 +1,7 @@
+# Yosys onfig and src have to point to the yosys you are going to use
 YOSYS_CONFIG := /Users/noamcohen/dev/OR/OpenROAD-flow-scripts/tools/yosys/yosys-config
 YOSYS_SRC := /Users/noamcohen/dev/OR/OpenROAD-flow-scripts/tools/yosys
+
 CXX := $(shell $(YOSYS_CONFIG) --cxx)
 YOSYS_LD_FLAGS := $(shell $(YOSYS_CONFIG) --ldflags --ldlibs)
 CXX_FLAGS ?= -I/opt/homebrew/Cellar/capnp/1.1.0_1/include -I$(PWD)/thirdparty/naja-if/schema/ -DDEBUG -g
