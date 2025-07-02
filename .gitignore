@@ -1,6 +1,2 @@
 *~
-*.o
-*.so
-*.d
-*.capnp.c++
-*.capnp.h
+build
